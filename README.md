@@ -1,4 +1,4 @@
-webp
+php extension for webp
 ====
 INSTALL
 
