@@ -9,7 +9,7 @@ INSTALL
     make
     sudo make install
 
-Code
+php code
 ====
 
     <?php
