@@ -12,6 +12,9 @@ Code
 ====
 
     <?php
+    error_reporting(E_ALL);
+    $file = "/home/www/test/webp/151933.jpg";
+    image2webp($file, $file.".webp");
     ?>
     
 
