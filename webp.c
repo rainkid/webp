@@ -189,7 +189,7 @@ PHP_FUNCTION(image2webp)
 	zval *z_in_file, *z_out_file;
 	double z_quality;
 
-	if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "zz|d",
+	if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "zz|z",
 			&z_in_file, &z_out_file, &z_quality) == FAILURE) {
 		WRONG_PARAM_COUNT;
 	}
@@ -201,7 +201,7 @@ PHP_FUNCTION(image2webp)
 		RETURN_FALSE;
 	}
 
-	if (z_quality >0) config.quality = z_quality;
+	if (z_quality > 0.00001) config.quality = z_quality;
 
 	if (!WebPValidateConfig(&config))
 	{
