@@ -8,7 +8,7 @@ INSTALL
     make
     sudo make install
 
-example
+Code
 ====
 
     <?php
