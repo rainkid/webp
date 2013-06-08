@@ -1,6 +1,7 @@
 php extension for webp
-====
+
 INSTALL
+====
 
     phpize
     ./configure --with-php-config=/usr/bin/php-config
@@ -9,6 +10,7 @@ INSTALL
 
 example
 ====
+
     <?php
     ?>
     
