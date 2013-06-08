@@ -2,14 +2,14 @@ webp
 ====
 INSTALL
 
-/usr/local/php-5.3/bin/phpize
-./configure --with-php-config=/usr/local/php-5.3/bin/php-config
-make
-sudo make install
+    phpize
+    ./configure --with-php-config=/usr/bin/php-config
+    make
+    sudo make install
 
+example
 ====
-dependency
+    <?php
+    ?>
+    
 
-libwebp-0.2.0+
-libjpeg-8+
-libpng
