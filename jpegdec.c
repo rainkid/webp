@@ -283,8 +283,7 @@ int ReadJPEG(FILE* in_file, struct WebPPicture* const pic,
   (void)in_file;
   (void)pic;
   (void)metadata;
-  fprintf(stderr, "JPEG support not compiled. Please install the libjpeg "
-          "development package before building.\n");
+  php_error_docref(NULL TSRMLS_CC, E_WARNING, "JPEG support not compiled. Please install the libjpeg\ndevelopment package before building.\n");
   return 0;
 }
 #endif  // WEBP_HAVE_JPEG

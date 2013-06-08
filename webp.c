@@ -176,7 +176,66 @@ static const char* const kErrorMessages[] =
     "FILE_TOO_BIG: File would be too big to fit in 4G",
     "USER_ABORT: encoding abort requested by user"
 };/*}}}*/
+PHP_FUNCTION(image2webp)
+{
 
+	int keep_alpha = 1;
+	WebPPicture picture;
+	WebPConfig config;
+	WebPAuxStats stats;
+	FILE *out = NULL;
+
+	const char *in_file = NULL, *out_file = NULL;
+	zval *z_in_file, *z_out_file;
+	double z_quality;
+
+	if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "zz|d",
+			&z_in_file, &z_out_file, &z_quality) == FAILURE) {
+		WRONG_PARAM_COUNT;
+	}
+	in_file = Z_STRVAL_P(z_in_file);
+	out_file = Z_STRVAL_P(z_out_file);
+
+	if (!WebPPictureInit(&picture) || !WebPConfigInit(&config)) {
+		php_error_docref(NULL TSRMLS_CC, E_WARNING, "Error! Version mismatch!\n");
+		RETURN_FALSE;
+	}
+
+	if (z_quality >0) config.quality = z_quality;
+
+	if (!WebPValidateConfig(&config))
+	{
+		php_error_docref(NULL TSRMLS_CC, E_WARNING, "Error! Invalid configuration.\n");
+		goto Error;
+	}
+
+	if (!ReadPicture(in_file, &picture, keep_alpha)) {
+		php_error_docref(NULL TSRMLS_CC, E_WARNING, "Error! Not JPEG or PNG image\n");
+		goto Error;
+	}
+	picture.progress_hook = NULL;
+	// Open the output
+	out = fopen(out_file, "wb");
+	if (out)
+	{
+		picture.writer = MyWriter;
+		picture.custom_ptr = (void*)out;
+	} else {
+		php_error_docref(NULL TSRMLS_CC, E_WARNING, "No output buffer specified.\n");
+		goto Error;
+	}
+	if (!WebPEncode(&config, &picture))
+	{
+		php_error_docref(NULL TSRMLS_CC, E_WARNING, "Error! Cannot encode picture as WebP\nError code: %d (%s)\n", picture.error_code, kErrorMessages[picture.error_code]);
+		goto Error;
+	}
+	RETURN_TRUE;
+Error:
+	WebPPictureFree(&picture);
+	fclose(out);
+
+	RETURN_FALSE;
+}
 /* {{{ webp_functions[]
  *
  * Every user visible function must have an entry in webp_functions[].
@@ -323,61 +382,3 @@ PHP_MINFO_FUNCTION(webp)
  * vim600: noet sw=4 ts=4 fdm=marker
  * vim<600: noet sw=4 ts=4
  */
-PHP_FUNCTION(image2webp)
-{
-
-	int keep_alpha = 1;
-	WebPPicture picture;
-	WebPConfig config;
-	WebPAuxStats stats;
-	FILE *out = NULL;
-
-	const char *in_file = NULL, *out_file = NULL;
-	zval *z_in_file, *z_out_file;
-
-	if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "zz", &z_in_file, &z_out_file) == FAILURE) {
-		WRONG_PARAM_COUNT;
-	}
-	in_file = Z_STRVAL_P(z_in_file);
-	out_file = Z_STRVAL_P(z_out_file);
-
-	if (!WebPPictureInit(&picture) ||
-			!WebPConfigInit(&config))
-	{
-		php_error_docref(NULL TSRMLS_CC, E_WARNING, "Error! Version mismatch!\n");
-		RETURN_FALSE;
-	}
-
-	if (!WebPValidateConfig(&config))
-	{
-		php_error_docref(NULL TSRMLS_CC, E_WARNING, "Error! Invalid configuration.\n");
-		goto Error;
-	}
-
-	if (!ReadPicture(in_file, &picture, keep_alpha)) {
-		php_error_docref(NULL TSRMLS_CC, E_WARNING, "Error! Not JPEG or PNG image\n");
-		goto Error;
-	}
-	picture.progress_hook = NULL;
-	// Open the output
-	out = fopen(out_file, "wb");
-	if (out)
-	{
-		picture.writer = MyWriter;
-		picture.custom_ptr = (void*)out;
-	} else {
-		php_error_docref(NULL TSRMLS_CC, E_WARNING, "No output buffer specified.\n");
-		goto Error;
-	}
-	if (!WebPEncode(&config, &picture))
-	{
-		php_error_docref(NULL TSRMLS_CC, E_WARNING, "Error! Cannot encode picture as WebP\nError code: %d (%s)\n", picture.error_code, kErrorMessages[picture.error_code]);
-		goto Error;
-	}
-	RETURN_TRUE;
-Error:
-	WebPPictureFree(&picture);
-	fclose(out);
-
-	RETURN_FALSE;
-}
