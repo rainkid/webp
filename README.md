@@ -1,4 +1,5 @@
 php extension for webp
+create a webp img with php
 
 INSTALL
 ====
