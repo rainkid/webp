@@ -19,4 +19,7 @@ php code
     image2webp($file, $file.".webp", $quality);
     ?>
     
-
+links
+====
+https://code.google.com/p/webp/issues/list
+https://developers.google.com/speed/webp/docs
