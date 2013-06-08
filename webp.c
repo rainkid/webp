@@ -129,10 +129,9 @@ static int ReadPicture(const char* const filename, WebPPicture* const pic, int k
   int ok = 0;
   FILE* in_file = fopen(filename, "rb");
   if (in_file == NULL) {
-    fprintf(stderr, "Error! Cannot open input file '%s'\n", filename);
-    return ok;
+	zend_error(E_ERROR, "Error! Cannot open input file '%s'\n", filename);
+    return !ok;
   }
-
   if (pic->width == 0 || pic->height == 0) {
     // If no size specified, try to decode it as PNG/JPEG (as appropriate).
     const InputFileFormat format = GetImageType(in_file);
@@ -149,7 +148,7 @@ static int ReadPicture(const char* const filename, WebPPicture* const pic, int k
     ok = ReadYUV(in_file, pic);
   }
   if (!ok) {
-    fprintf(stderr, "Error! Could not process file %s\n", filename);
+	  zend_error(E_ERROR, "Error! Could not process file %s\n", filename);
   }
 
   fclose(in_file);
@@ -197,23 +196,26 @@ PHP_FUNCTION(image2webp)
 	out_file = Z_STRVAL_P(z_out_file);
 
 	if (!WebPPictureInit(&picture) || !WebPConfigInit(&config)) {
-		php_error_docref(NULL TSRMLS_CC, E_WARNING, "Error! Version mismatch!\n");
-		RETURN_FALSE;
+		zend_error(E_ERROR, "Error! Version mismatch!\n");
+		goto Error;
 	}
+
+
+
 	if (z_quality > 0.00001) {
 		config.quality = z_quality;
 	}
 
 	if (!WebPValidateConfig(&config))
 	{
-		php_error_docref(NULL TSRMLS_CC, E_WARNING, "Error! Invalid configuration.\n");
+		zend_error(E_ERROR, "Error! Invalid configuration.\n");
+		goto Error;
+	}
+	if (!ReadPicture(in_file, &picture, keep_alpha)) {
+		zend_error(E_ERROR, "Error! Not JPEG or PNG image\n");
 		goto Error;
 	}
 
-	if (!ReadPicture(in_file, &picture, keep_alpha)) {
-		php_error_docref(NULL TSRMLS_CC, E_WARNING, "Error! Not JPEG or PNG image\n");
-		goto Error;
-	}
 	picture.progress_hook = NULL;
 	// Open the output
 	out = fopen(out_file, "wb");
@@ -222,19 +224,24 @@ PHP_FUNCTION(image2webp)
 		picture.writer = MyWriter;
 		picture.custom_ptr = (void*)out;
 	} else {
-		php_error_docref(NULL TSRMLS_CC, E_WARNING, "No output buffer specified.\n");
+		zend_error(E_ERROR, "No output buffer specified.\n");
 		goto Error;
 	}
 	if (!WebPEncode(&config, &picture))
 	{
-		php_error_docref(NULL TSRMLS_CC, E_WARNING, "Error! Cannot encode picture as WebP\nError code: %d (%s)\n", picture.error_code, kErrorMessages[picture.error_code]);
+		zend_error(E_ERROR, "Error! Cannot encode picture as WebP\nError code: %d (%s)\n",
+				picture.error_code,
+				kErrorMessages[picture.error_code]);
 		goto Error;
 	}
+
+	WebPPictureFree(&picture);
+	fclose(out);
 	RETURN_TRUE;
+
 Error:
 	WebPPictureFree(&picture);
 	fclose(out);
-
 	RETURN_FALSE;
 }
 /* {{{ webp_functions[]
