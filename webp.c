@@ -189,7 +189,7 @@ PHP_FUNCTION(image2webp)
 	zval *z_in_file, *z_out_file;
 	double z_quality;
 
-	if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "zz|z",
+	if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "zz|d",
 			&z_in_file, &z_out_file, &z_quality) == FAILURE) {
 		WRONG_PARAM_COUNT;
 	}
@@ -200,8 +200,9 @@ PHP_FUNCTION(image2webp)
 		php_error_docref(NULL TSRMLS_CC, E_WARNING, "Error! Version mismatch!\n");
 		RETURN_FALSE;
 	}
-
-	if (z_quality > 0.00001) config.quality = z_quality;
+	if (z_quality > 0.00001) {
+		config.quality = z_quality;
+	}
 
 	if (!WebPValidateConfig(&config))
 	{
