@@ -16,19 +16,9 @@
   +----------------------------------------------------------------------+
 */
 
-#ifdef WEBP_HAVE_PNG
-#include <png.h>
-#endif
-
-#ifdef WEBP_HAVE_JPEG
-#include <setjmp.h>   // note: this must be included *after* png.h
-#include <jpeglib.h>
-#endif
-
-#ifdef WEBP_HAVE_TIFF
-#include <tiffio.h>
-#endif
-
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
 
 #ifdef HAVE_CONFIG_H
 #include "config.h"
@@ -39,12 +29,15 @@
 #include "ext/standard/info.h"
 #include "php_webp.h"
 
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
-#include <stdint.h>
-
 #include "webp/encode.h"
+
+#include "./metadata.h"
+#include "./stopwatch.h"
+
+#include "./jpegdec.h"
+#include "./pngdec.h"
+#include "./tiffdec.h"
+#include "./wicdec.h"
 #ifndef WEBP_DLL
 #if defined(__cplusplus) || defined(c_plusplus)
 extern "C" 
@@ -68,298 +61,100 @@ ZEND_DECLARE_MODULE_GLOBALS(webp)
 static int le_webp;
 static int verbose = 0;
 
-#ifdef WEBP_HAVE_JPEG
-struct my_error_mgr
-{/*{{{*/
-    struct jpeg_error_mgr pub;
-    jmp_buf setjmp_buffer;
-};/*}}}*/
+typedef enum {
+	 PNG_ = 0,
+	 JPEG_,
+	 TIFF_,  // 'TIFF' clashes with libtiff
+	 UNSUPPORTED
+} InputFileFormat;
 
-static void my_error_exit(j_common_ptr dinfo)
-{/*{{{*/
-    struct my_error_mgr* myerr = (struct my_error_mgr*) dinfo->err;
-    (*dinfo->err->output_message) (dinfo);
-    longjmp(myerr->setjmp_buffer, 1);
-}/*}}}*/
+static int MyWriter(const uint8_t* data, size_t data_size,
+                    const WebPPicture* const pic) {
+  FILE* const out = (FILE*)pic->custom_ptr;
+  return data_size ? (fwrite(data, data_size, 1, out) == 1) : 1;
+}
 
-static int ReadJPEG(unsigned char* data,const unsigned int dataSize, WebPPicture* const pic)
-{/*{{{*/
-    int ok = 0;
-    int stride, width, height;
-    uint8_t* rgb = NULL;
-    uint8_t* row_ptr = NULL;
-    struct jpeg_decompress_struct dinfo;
-    struct my_error_mgr jerr;
-    JSAMPARRAY buffer;
+static InputFileFormat GetImageType(FILE* in_file) {
+  InputFileFormat format = UNSUPPORTED;
+  unsigned int magic;
+  unsigned char buf[4];
 
-    dinfo.err = jpeg_std_error(&jerr.pub);
-    jerr.pub.error_exit = my_error_exit;
-
-    if (setjmp(jerr.setjmp_buffer))
-    {
-Error:
-        jpeg_destroy_decompress(&dinfo);
-        goto End;
-    }
-
-    jpeg_create_decompress(&dinfo);
-    jpeg_mem_src(&dinfo, data, dataSize);
-//    jpeg_stdio_src(&dinfo, in_file);
-    jpeg_read_header(&dinfo, TRUE);
-
-    dinfo.out_color_space = JCS_RGB;
-    dinfo.dct_method = JDCT_IFAST;
-    dinfo.do_fancy_upsampling = TRUE;
-
-    jpeg_start_decompress(&dinfo);
-
-    if (dinfo.output_components != 3)
-    {
-        goto Error;
-    }
-
-    width = dinfo.output_width;
-    height = dinfo.output_height;
-    stride = dinfo.output_width * dinfo.output_components * sizeof(*rgb);
-
-    rgb = (uint8_t*)malloc(stride * height);
-    if (rgb == NULL)
-    {
-        goto End;
-    }
-    row_ptr = rgb;
-
-    buffer = (*dinfo.mem->alloc_sarray) ((j_common_ptr) &dinfo,
-            JPOOL_IMAGE, stride, 1);
-    if (buffer == NULL)
-    {
-        goto End;
-    }
-
-    while (dinfo.output_scanline < dinfo.output_height)
-    {
-        if (jpeg_read_scanlines(&dinfo, buffer, 1) != 1)
-        {
-            goto End;
-        }
-        memcpy(row_ptr, buffer[0], stride);
-        row_ptr += stride;
-    }
-
-    jpeg_finish_decompress(&dinfo);
-    jpeg_destroy_decompress(&dinfo);
-
-    // WebP conversion.
-    pic->width = width;
-    pic->height = height;
-    ok = WebPPictureImportRGB(pic, rgb, stride);
-
-End:
-    if (rgb)
-    {
-        free(rgb);
-    }
-    return ok;
-}/*}}}*/
-
-#else
-static int ReadJPEG(unsigned char* data,const unsigned int dataSize, WebPPicture* const pic)
-{/*{{{*/
-    fprintf(stderr, "JPEG support not compiled. Please install the libjpeg "
-            "development package before building.\n");
-    return 0;
-}/*}}}*/
-#endif
-
-#ifdef WEBP_HAVE_PNG
-static void PNGAPI error_function(png_structp png, png_const_charp dummy)
-{/*{{{*/
-    (void)dummy;  // remove variable-unused warning
-    longjmp(png_jmpbuf(png), 1);
-}/*}}}*/
-
-//从内存读取PNG图片的回调函数
-static void pngReadCallback(png_structp png_ptr, png_bytep data, png_size_t length)
-{/*{{{*/
-    ImageSource* isource = (ImageSource*)png_get_io_ptr(png_ptr);
-    if(isource->offset + length <= isource->size)
-    {
-        memcpy(data, isource->data+isource->offset, length);
-        isource->offset += length;
-    }
-    else
-    {
-        png_error(png_ptr, "pngReaderCallback failed");
-    }
-}/*}}}*/
-static int ReadPNG(unsigned char* data,const unsigned int dataSize, WebPPicture* const pic, int keep_alpha)
-{/*{{{*/
-    png_structp png;
-    png_infop info;
-    int color_type, bit_depth, interlaced;
-    int has_alpha;
-    int num_passes;
-    int p;
-    int ok = 0;
-    png_uint_32 width, height, y;
-    int stride;
-    uint8_t* rgb = NULL;
-
-    png = png_create_read_struct(PNG_LIBPNG_VER_STRING, 0, 0, 0);
-    if (png == NULL)
-    {
-        goto End;
-    }
-
-    png_set_error_fn(png, 0, error_function, NULL);
-    if (setjmp(png_jmpbuf(png)))
-    {
-Error:
-        png_destroy_read_struct(&png, NULL, NULL);
-        free(rgb);
-        goto End;
-    }
-
-    info = png_create_info_struct(png);
-    if (info == NULL) goto Error;
-    ImageSource imgsource;
-    imgsource.data = data;
-    imgsource.size = dataSize;
-    imgsource.offset = 0;
-    png_set_read_fn(png, &imgsource,pngReadCallback);
-    png_set_sig_bytes(png, 0);
-    png_read_info(png, info);
-    if (!png_get_IHDR(png, info,
-                &width, &height, &bit_depth, &color_type, &interlaced,
-                NULL, NULL)) goto Error;
-
-    png_set_strip_16(png);
-    png_set_packing(png);
-    if (color_type == PNG_COLOR_TYPE_PALETTE) png_set_palette_to_rgb(png);
-    if (color_type == PNG_COLOR_TYPE_GRAY ||
-            color_type == PNG_COLOR_TYPE_GRAY_ALPHA)
-    {
-        if (bit_depth < 8)
-        {
-            png_set_expand_gray_1_2_4_to_8(png);
-        }
-        png_set_gray_to_rgb(png);
-    }
-    if (png_get_valid(png, info, PNG_INFO_tRNS))
-    {
-        png_set_tRNS_to_alpha(png);
-        has_alpha = 1;
-    } else
-    {
-        has_alpha = !!(color_type & PNG_COLOR_MASK_ALPHA);
-    }
-
-    if (!keep_alpha)
-    {
-        png_set_strip_alpha(png);
-        has_alpha = 0;
-    }
-
-    num_passes = png_set_interlace_handling(png);
-    png_read_update_info(png, info);
-    stride = (has_alpha ? 4 : 3) * width * sizeof(*rgb);
-    rgb = (uint8_t*)malloc(stride * height);
-    if (rgb == NULL) goto Error;
-    for (p = 0; p < num_passes; ++p)
-    {
-        for (y = 0; y < height; ++y)
-        {
-            png_bytep row = rgb + y * stride;
-            png_read_rows(png, &row, NULL, 1);
-        }
-    }
-    png_read_end(png, info);
-    png_destroy_read_struct(&png, &info, NULL);
-
-    pic->width = width;
-    pic->height = height;
-    ok = has_alpha ? WebPPictureImportRGBA(pic, rgb, stride)
-        : WebPPictureImportRGB(pic, rgb, stride);
-    free(rgb);
-
-    if (ok && has_alpha && keep_alpha == 2)
-    {
-        WebPCleanupTransparentArea(pic);
-    }
-
-End:
-    return ok;
-}/*}}}*/
-#else
-static int ReadPNG(unsigned char* data,const unsigned int dataSize, WebPPicture* const pic, int keep_alpha)
-{/*{{{*/
-    fprintf(stderr, "PNG support not compiled. Please install the libpng "
-            "development package before building.\n");
-    return 0;
-}/*}}}*/
-#endif
-
-static ImageFormat GetImageType(const unsigned char* const blob)
-{/*{{{*/
-    ImageFormat format = UNSUPPORTED;
-    unsigned int magic;
-    unsigned char buf[4];
-
-    if(NULL == blob||!memcpy(buf,blob,4))
-    {
-        return format;
-    }
-
-    magic = (buf[0] << 24) | (buf[1] << 16) | (buf[2] << 8) | buf[3];
-    if (magic == 0x89504E47U)
-    {
-        format = PNG_;
-    } else if (magic >= 0xFFD8FF00U && magic <= 0xFFD8FFFFU)
-    {
-        format = JPEG_;
-    }
+  if ((fread(&buf[0], 4, 1, in_file) != 1) ||
+      (fseek(in_file, 0, SEEK_SET) != 0)) {
     return format;
-}/*}}}*/
+  }
 
-static int ReadPicture(unsigned char* blob,int datasize, WebPPicture* const pic,
-        int keep_alpha)
-{/*{{{*/
-    int ok = 0;
-    if (blob == NULL||!strlen(blob))
-    {
-        fprintf(stderr, "Error! No img data provided\n");
-        return ok;
-    }
+  magic = (buf[0] << 24) | (buf[1] << 16) | (buf[2] << 8) | buf[3];
+  if (magic == 0x89504E47U) {
+    format = PNG_;
+  } else if (magic >= 0xFFD8FF00U && magic <= 0xFFD8FFFFU) {
+    format = JPEG_;
+  } else if (magic == 0x49492A00 || magic == 0x4D4D002A) {
+    format = TIFF_;
+  }
+  return format;
+}
 
-    // If no size specified, try to decode it as PNG/JPEG (as appropriate).
-    const ImageFormat format = GetImageType(blob);
-    if (format == PNG_)
-    {
-        ok = ReadPNG(blob,datasize, pic, keep_alpha);
-    } else if (format == JPEG_)
-    {
-        ok = ReadJPEG(blob,datasize, pic);
-    }
-    if (!ok)
-    {
-        fprintf(stderr, "Error! Not JPEG or PNG image\n");
-    }
+static int ReadYUV(FILE* in_file, WebPPicture* const pic) {
+  const int use_argb = pic->use_argb;
+  const int uv_width = (pic->width + 1) / 2;
+  const int uv_height = (pic->height + 1) / 2;
+  int y;
+  int ok = 0;
 
+  pic->use_argb = 0;
+  if (!WebPPictureAlloc(pic)) return ok;
+
+  for (y = 0; y < pic->height; ++y) {
+    if (fread(pic->y + y * pic->y_stride, pic->width, 1, in_file) != 1) {
+      goto End;
+    }
+  }
+  for (y = 0; y < uv_height; ++y) {
+    if (fread(pic->u + y * pic->uv_stride, uv_width, 1, in_file) != 1)
+      goto End;
+  }
+  for (y = 0; y < uv_height; ++y) {
+    if (fread(pic->v + y * pic->uv_stride, uv_width, 1, in_file) != 1)
+      goto End;
+  }
+  ok = 1;
+  if (use_argb) ok = WebPPictureYUVAToARGB(pic);
+
+ End:
+  return ok;
+}
+
+static int ReadPicture(const char* const filename, WebPPicture* const pic, int keep_alpha) {
+  int ok = 0;
+  FILE* in_file = fopen(filename, "rb");
+  if (in_file == NULL) {
+    fprintf(stderr, "Error! Cannot open input file '%s'\n", filename);
     return ok;
-}/*}}}*/
+  }
 
-//------------------------------------------------------------------------------
-static int MemoryWriter(const uint8_t* data, size_t data_size,
-        WebPPicture* pic)
-{/*{{{*/
-    out_buf_t* const out = (out_buf_t*)pic->custom_ptr;
-    if(!data_size)
-        return 1;
-    memcpy(out->start + out->len, data,data_size);
-    out->len += data_size;
-    return 1;
-}/*}}}*/
+  if (pic->width == 0 || pic->height == 0) {
+    // If no size specified, try to decode it as PNG/JPEG (as appropriate).
+    const InputFileFormat format = GetImageType(in_file);
 
+    if (format == PNG_) {
+      ok = ReadPNG(in_file, pic, keep_alpha, NULL);
+    } else if (format == JPEG_) {
+      ok = ReadJPEG(in_file, pic, NULL);
+    } else if (format == TIFF_) {
+      ok = ReadTIFF(filename, pic, keep_alpha, NULL);
+    }
+  } else {
+    // If image size is specified, infer it as YUV format.
+    ok = ReadYUV(in_file, pic);
+  }
+  if (!ok) {
+    fprintf(stderr, "Error! Could not process file %s\n", filename);
+  }
+
+  fclose(in_file);
+  return ok;
+}
 // Error messages
 
 static const char* const kErrorMessages[] =
@@ -381,68 +176,6 @@ static const char* const kErrorMessages[] =
     "FILE_TOO_BIG: File would be too big to fit in 4G",
     "USER_ABORT: encoding abort requested by user"
 };/*}}}*/
-
-static int cwebp(unsigned char* blob,int datasize,out_buf_t* out)
-{/*{{{*/
-    int return_value = -1;
-    int c;
-    int short_output = 0;
-    int keep_alpha = 1;
-    WebPPicture picture;
-    WebPConfig config;
-    WebPAuxStats stats;
-
-    if (blob == NULL)
-    {
-		php_error_docref(NULL TSRMLS_CC, E_WARNING, "No blob specified!\n");
-        goto Error;
-    }
-    if (!WebPPictureInit(&picture) ||
-            !WebPConfigInit(&config))
-    {
-    	php_error_docref(NULL TSRMLS_CC, E_WARNING, "Error! Version mismatch!\n");
-        return -1;
-    }
-
-    // Check for unsupported command line options for lossless mode and log
-    // warning for such options.
-
-    if (!WebPValidateConfig(&config))
-    {
-    	php_error_docref(NULL TSRMLS_CC, E_WARNING, "Error! Invalid configuration.\n");
-        goto Error;
-    }
-
-    // Read the input
-    if (!ReadPicture(blob, datasize,&picture, keep_alpha))
-    {
-    	php_error_docref(NULL TSRMLS_CC, E_WARNING, "Error! Not JPEG or PNG image\n");
-        goto Error;
-    }
-    picture.progress_hook = NULL;
-
-    // Open the output
-    if (out)
-    {
-        picture.writer = (WebPWriterFunction)MemoryWriter;
-        picture.custom_ptr = (void*)out;
-    } else
-    {
-    	php_error_docref(NULL TSRMLS_CC, E_WARNING, "No output buffer specified.\n");
-        goto Error;
-    }
-    if (!WebPEncode(&config, &picture))
-    {
-    	php_error_docref(NULL TSRMLS_CC, E_WARNING, "Error! Cannot encode picture as WebP\nError code: %d (%s)\n", picture.error_code, kErrorMessages[picture.error_code]);
-        goto Error;
-    }
-    return_value = 0;
-
-Error:
-    WebPPictureFree(&picture);
-
-    return return_value;
-}/*}}}*/
 
 /* {{{ webp_functions[]
  *
@@ -592,17 +325,59 @@ PHP_MINFO_FUNCTION(webp)
  */
 PHP_FUNCTION(image2webp)
 {
-	char *blob = NULL;
-	int datasize, len;
-	char *strg;
-    uint8_t *out = emalloc(2*1024*1024);
-    out_buf_t out_buf;
-    out_buf.start = out;
-    out_buf.len = 0;
 
-	if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "s", &blob, &datasize) == FAILURE) {
-		return;
+	int keep_alpha = 1;
+	WebPPicture picture;
+	WebPConfig config;
+	WebPAuxStats stats;
+	FILE *out = NULL;
+
+	const char *in_file = NULL, *out_file = NULL;
+	zval *z_in_file, *z_out_file;
+
+	if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "zz", &z_in_file, &z_out_file) == FAILURE) {
+		WRONG_PARAM_COUNT;
 	}
-    cwebp(blob,datasize,&out_buf);
-	RETURN_STRINGL(out_buf.start, out_buf.len, 0);
+	in_file = Z_STRVAL_P(z_in_file);
+	out_file = Z_STRVAL_P(z_out_file);
+
+	if (!WebPPictureInit(&picture) ||
+			!WebPConfigInit(&config))
+	{
+		php_error_docref(NULL TSRMLS_CC, E_WARNING, "Error! Version mismatch!\n");
+		RETURN_FALSE;
+	}
+
+	if (!WebPValidateConfig(&config))
+	{
+		php_error_docref(NULL TSRMLS_CC, E_WARNING, "Error! Invalid configuration.\n");
+		goto Error;
+	}
+
+	if (!ReadPicture(in_file, &picture, keep_alpha)) {
+		php_error_docref(NULL TSRMLS_CC, E_WARNING, "Error! Not JPEG or PNG image\n");
+		goto Error;
+	}
+	picture.progress_hook = NULL;
+	// Open the output
+	out = fopen(out_file, "wb");
+	if (out)
+	{
+		picture.writer = MyWriter;
+		picture.custom_ptr = (void*)out;
+	} else {
+		php_error_docref(NULL TSRMLS_CC, E_WARNING, "No output buffer specified.\n");
+		goto Error;
+	}
+	if (!WebPEncode(&config, &picture))
+	{
+		php_error_docref(NULL TSRMLS_CC, E_WARNING, "Error! Cannot encode picture as WebP\nError code: %d (%s)\n", picture.error_code, kErrorMessages[picture.error_code]);
+		goto Error;
+	}
+	RETURN_TRUE;
+Error:
+	WebPPictureFree(&picture);
+	fclose(out);
+
+	RETURN_FALSE;
 }

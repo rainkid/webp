@@ -4247,7 +4247,7 @@ if test "$PHP_WEBP" != "no"; then
 
 
   old_IFS=$IFS
-  for ac_src in webp.c; do
+  for ac_src in webp.c jpegdec.c pngdec.c metadata.c wicdec.c; do
 
       IFS=.
       set $ac_src
@@ -4296,7 +4296,7 @@ EOF
 
 
   old_IFS=$IFS
-  for ac_src in webp.c; do
+  for ac_src in webp.c jpegdec.c pngdec.c metadata.c wicdec.c; do
 
       IFS=.
       set $ac_src
@@ -4426,7 +4426,7 @@ _ACEOF
 
 
   old_IFS=$IFS
-  for ac_src in webp.c; do
+  for ac_src in webp.c jpegdec.c pngdec.c metadata.c wicdec.c; do
 
       IFS=.
       set $ac_src
@@ -4472,7 +4472,7 @@ EOF
 
 
   old_IFS=$IFS
-  for ac_src in webp.c; do
+  for ac_src in webp.c jpegdec.c pngdec.c metadata.c wicdec.c; do
 
       IFS=.
       set $ac_src

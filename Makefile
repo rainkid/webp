@@ -12,7 +12,7 @@ ZEND_EXT_TYPE = zend_extension
 RE2C = re2c
 AWK = gawk
 WEBP_SHARED_LIBADD = -Wl,-rpath,/usr/local/lib -L/usr/local/lib -lwebp -Wl,-rpath,/usr/local/lib -L/usr/local/lib -lpng -Wl,-rpath,/usr/local/lib -L/usr/local/lib -ljpeg
-shared_objects_webp = webp.lo
+shared_objects_webp = webp.lo jpegdec.lo pngdec.lo metadata.lo wicdec.lo
 PHP_PECL_EXTENSION = webp
 PHP_MODULES = $(phplibdir)/webp.la
 PHP_ZEND_EX =
@@ -164,6 +164,14 @@ distclean: clean
 .NOEXPORT:
 webp.lo: /home/rainkid/workspace/webp/webp.c
 	$(LIBTOOL) --mode=compile $(CC)  -I. -I/home/rainkid/workspace/webp $(COMMON_FLAGS) $(CFLAGS_CLEAN) $(EXTRA_CFLAGS)  -c /home/rainkid/workspace/webp/webp.c -o webp.lo 
+jpegdec.lo: /home/rainkid/workspace/webp/jpegdec.c
+	$(LIBTOOL) --mode=compile $(CC)  -I. -I/home/rainkid/workspace/webp $(COMMON_FLAGS) $(CFLAGS_CLEAN) $(EXTRA_CFLAGS)  -c /home/rainkid/workspace/webp/jpegdec.c -o jpegdec.lo 
+pngdec.lo: /home/rainkid/workspace/webp/pngdec.c
+	$(LIBTOOL) --mode=compile $(CC)  -I. -I/home/rainkid/workspace/webp $(COMMON_FLAGS) $(CFLAGS_CLEAN) $(EXTRA_CFLAGS)  -c /home/rainkid/workspace/webp/pngdec.c -o pngdec.lo 
+metadata.lo: /home/rainkid/workspace/webp/metadata.c
+	$(LIBTOOL) --mode=compile $(CC)  -I. -I/home/rainkid/workspace/webp $(COMMON_FLAGS) $(CFLAGS_CLEAN) $(EXTRA_CFLAGS)  -c /home/rainkid/workspace/webp/metadata.c -o metadata.lo 
+wicdec.lo: /home/rainkid/workspace/webp/wicdec.c
+	$(LIBTOOL) --mode=compile $(CC)  -I. -I/home/rainkid/workspace/webp $(COMMON_FLAGS) $(CFLAGS_CLEAN) $(EXTRA_CFLAGS)  -c /home/rainkid/workspace/webp/wicdec.c -o wicdec.lo 
 $(phplibdir)/webp.la: ./webp.la
 	$(LIBTOOL) --mode=install cp ./webp.la $(phplibdir)
 

@@ -61,5 +61,5 @@ if test "$PHP_WEBP" != "no"; then
   dnl
   PHP_SUBST(WEBP_SHARED_LIBADD)
 
-  PHP_NEW_EXTENSION(webp, webp.c, $ext_shared)
+  PHP_NEW_EXTENSION(webp, webp.c jpegdec.c pngdec.c metadata.c wicdec.c, $ext_shared)
 fi
