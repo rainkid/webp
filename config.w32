@@ -1,0 +1,13 @@
+// $Id$
+// vim:ft=javascript
+
+// If your extension references something external, use ARG_WITH
+// ARG_WITH("webp", "for webp support", "no");
+
+// Otherwise, use ARG_ENABLE
+// ARG_ENABLE("webp", "enable webp support", "no");
+
+if (PHP_WEBP != "no") {
+	EXTENSION("webp", "webp.c");
+}
+
