@@ -16,7 +16,8 @@ php code
     error_reporting(E_ALL);
     $file = "/home/www/test/webp/151933.jpg";
     $quality = 70 //default is 75
-    image2webp($file, $file.".webp", $quality);
+    $out_file = $file . ".webp";
+    image2webp($file, $out_file, $quality);
     ?>
     
 links
