@@ -1,8 +1,13 @@
  php extension for webp<br/>
  create a webp img with php
 
-INSTALL
+INSTALL 
 ====
+    wget https://storage.googleapis.com/downloads.webmproject.org/releases/webp/libwebp-0.5.1-linux-x86-32.tar.gz
+    cd libwebp-0.5.1-linux-x86-32
+    ./configure
+    make
+    make install
 
     phpize
     ./configure --with-php-config=/usr/bin/php-config
